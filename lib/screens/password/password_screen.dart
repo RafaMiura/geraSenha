@@ -1,10 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gerador_de_senha/widgets/password_result_widget.dart';
-import 'package:gerador_de_senha/widgets/protected_route.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:flutter/services.dart';
 
 class NewPasswordScreen extends StatefulWidget {
   const NewPasswordScreen({super.key});
@@ -13,27 +13,55 @@ class NewPasswordScreen extends StatefulWidget {
   State<NewPasswordScreen> createState() => _NewPasswordScreenState();
 }
 
-class _NewPasswordScreenState extends State<NewPasswordScreen> {
-  final _nameController = TextEditingController();
-  final _passwordController = TextEditingController();
+class _NewPasswordScreenState extends State<NewPasswordScreen>
+    with TickerProviderStateMixin {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  String _generatedPassword = '';
+  bool _isLoading = false;
+  bool _showOptions = false;
+  bool _isPasswordVisible = false;
+
+  // Configurações da senha
   int _passwordLength = 12;
   bool _includeLowercase = true;
   bool _includeUppercase = true;
   bool _includeNumbers = true;
   bool _includeSymbols = true;
-  bool _showOptions = false;
-  bool _isGenerating = false;
-  String _generatedPassword = '';
 
-  // URL da API externa
-  static const String _apiUrl =
-      'https://safekey-api-a1bd9aa97953.herokuapp.com/generate';
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
-  Future<String> _generatePasswordFromAPI() async {
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _generatePassword() async {
+    setState(() => _isLoading = true);
+
     try {
+      // Tenta usar a API externa primeiro
+      final url = Uri.parse(
+        'https://safekey-api-a1bd9aa7953.herokuapp.com/generate',
+      );
       final response = await http.post(
-        Uri.parse(_apiUrl),
+        url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'length': _passwordLength,
@@ -46,30 +74,67 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['password'] ?? '';
+        setState(() {
+          _generatedPassword = data['password'] ?? '';
+        });
       } else {
-        throw Exception('Erro na API: ${response.statusCode}');
+        // Se a API falhar, usa gerador local
+        _generatePasswordLocally();
       }
     } catch (e) {
-      // Fallback para geração local em caso de erro na API
-      return _generatePasswordLocal();
+      // Se houver erro na API, usa gerador local
+      _generatePasswordLocally();
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  String _generatePasswordLocal() {
-    String chars = '';
-    if (_includeLowercase) chars += 'abcdefghijklmnopqrstuvwxyz';
-    if (_includeUppercase) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    if (_includeNumbers) chars += '0123456789';
-    if (_includeSymbols) chars += '!@#\$%^&*()_+-=[]{}|;:,.<>?';
+  void _generatePasswordLocally() {
+    const String lowercase = 'abcdefghijklmnopqrstuvwxyz';
+    const String uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const String numbers = '0123456789';
+    const String symbols = '!@#\$%^&*()_+-=[]{}|;:,.<>?';
 
-    if (chars.isEmpty) return '';
+    String charset = '';
+    if (_includeLowercase) charset += lowercase;
+    if (_includeUppercase) charset += uppercase;
+    if (_includeNumbers) charset += numbers;
+    if (_includeSymbols) charset += symbols;
 
-    final rnd = DateTime.now().millisecondsSinceEpoch;
-    return List.generate(
-      _passwordLength,
-      (index) => chars[(rnd + index) % chars.length],
-    ).join();
+    if (charset.isEmpty) {
+      setState(() {
+        _generatedPassword = '';
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selecione pelo menos um tipo de caractere!'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final random = DateTime.now().millisecondsSinceEpoch;
+    String password = '';
+    for (int i = 0; i < _passwordLength; i++) {
+      final index = (random + i * 7) % charset.length;
+      password += charset[index];
+    }
+
+    setState(() {
+      _generatedPassword = password;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Senha gerada localmente!'),
+          backgroundColor: Color(0xFF4CAF50),
+        ),
+      );
+    }
   }
 
   Future<void> _savePassword() async {
@@ -83,349 +148,304 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
       return;
     }
 
-    // Mostra dialog para pedir o nome da senha
-    final name = await _showSaveDialog();
-    if (name == null || name.isEmpty) return;
+    final TextEditingController labelController = TextEditingController();
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Usuário não autenticado!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('passwords')
-          .add({
-            'name': name,
-            'password': _generatedPassword,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Senha salva com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao salvar: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<String?> _showSaveDialog() async {
-    final controller = TextEditingController();
-    return showDialog<String>(
+    final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A3E),
-        title: const Text(
-          'Salvar senha',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text('Salvar senha'),
         content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
+          controller: labelController,
           decoration: const InputDecoration(
-            labelText: 'Nome da senha',
-            hintText: 'Ex: Senha do Wifi',
-            labelStyle: TextStyle(color: Colors.blue),
-            hintStyle: TextStyle(color: Colors.grey),
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Colors.grey),
-            ),
-            focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Colors.blue),
-            ),
+            labelText: 'Tipo da senha',
+            hintText: 'Ex: Senha do email',
           ),
+          autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancelar'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, labelController.text),
             child: const Text('Salvar'),
           ),
         ],
       ),
     );
+
+    if (result != null && result.isNotEmpty) {
+      try {
+        final user = _auth.currentUser;
+        if (user != null) {
+          await _firestore.collection('passwords').add({
+            'userId': user.uid,
+            'password': _generatedPassword,
+            'label': result,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Senha salva com sucesso!'),
+                backgroundColor: Color(0xFF4CAF50),
+              ),
+            );
+            Navigator.pop(context);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erro ao salvar senha: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
-  Future<void> _generatePassword() async {
-    setState(() => _isGenerating = true);
+  void _toggleOptions() {
+    setState(() {
+      _showOptions = !_showOptions;
+    });
 
-    try {
-      final password = await _generatePasswordFromAPI();
-      setState(() {
-        _generatedPassword = password;
-        _passwordController.text = password;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao gerar senha: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isGenerating = false);
+    if (_showOptions) {
+      _animationController.forward();
+    } else {
+      _animationController.reverse();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ProtectedRoute(
-      child: Scaffold(
-        backgroundColor: const Color(0xFF1A1A2E),
-        appBar: AppBar(
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          title: const Text('Gerador de Senhas'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.info_outline),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    backgroundColor: const Color(0xFF2A2A3E),
-                    title: const Text(
-                      'Informações do App',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    content: const Text(
-                      'Gerador de Senhas Seguro\n\nVersão 1.0.0\n\nDesenvolvido com Flutter e Firebase',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Fechar'),
-                      ),
-                    ],
-                  ),
-                );
-              },
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            const Icon(Icons.lock, color: Colors.white),
+            const SizedBox(width: 8),
+            const Text(
+              'Gerador de Senhas',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Widget de resultado da senha
-              PasswordResultWidget(
-                password: _generatedPassword,
-                onRegenerate: _generatePassword,
-              ),
-
-              const SizedBox(height: 20),
-
-              // Link para mostrar/ocultar opções
-              GestureDetector(
-                onTap: () {
-                  setState(() => _showOptions = !_showOptions);
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _showOptions ? 'Ocultar opções' : 'Mostrar opções',
-                        style: const TextStyle(
-                          color: Colors.blue,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        _showOptions
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Opções de configuração (com animação)
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                height: _showOptions ? null : 0,
-                child: _showOptions
-                    ? _buildOptionsPanel()
-                    : const SizedBox.shrink(),
-              ),
-
-              const SizedBox(height: 30),
-
-              // Botão gerar senha
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _isGenerating ? null : _generatePassword,
-                  icon: _isGenerating
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.auto_fix_high),
-                  label: Text(
-                    _isGenerating ? 'Gerando...' : 'Gerar Senha',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 2,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        backgroundColor: const Color(0xFF2196F3),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: _savePassword,
-          backgroundColor: Colors.blue,
-          child: const Icon(Icons.save, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOptionsPanel() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A3E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Controle de tamanho
-          Text(
-            'Tamanho da senha: $_passwordLength',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Slider(
-            value: _passwordLength.toDouble(),
-            min: 4,
-            max: 50,
-            divisions: 46,
-            activeColor: Colors.blue,
-            inactiveColor: Colors.grey,
-            onChanged: (value) {
-              setState(() => _passwordLength = value.round());
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline, color: Colors.white),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Sobre o App'),
+                  content: const Text(
+                    'Gerador de Senhas Seguro\n\n'
+                    'Este aplicativo gera senhas seguras usando uma API externa. '
+                    'Suas senhas são salvas de forma segura no Firebase. ',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
             },
-          ),
-
-          const SizedBox(height: 20),
-
-          // Opções de caracteres
-          const Text(
-            'Tipos de caracteres:',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          _buildToggleOption(
-            'Incluir letras minúsculas',
-            _includeLowercase,
-            (value) => setState(() => _includeLowercase = value!),
-          ),
-
-          _buildToggleOption(
-            'Incluir letras maiúsculas',
-            _includeUppercase,
-            (value) => setState(() => _includeUppercase = value!),
-          ),
-
-          _buildToggleOption(
-            'Incluir números',
-            _includeNumbers,
-            (value) => setState(() => _includeNumbers = value!),
-          ),
-
-          _buildToggleOption(
-            'Incluir símbolos',
-            _includeSymbols,
-            (value) => setState(() => _includeSymbols = value!),
           ),
         ],
       ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Campo de resultado da senha
+            if (_generatedPassword.isNotEmpty)
+              PasswordResultWidget(
+                password: _generatedPassword,
+                isVisible: _isPasswordVisible,
+                onToggleVisibility: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
+              )
+            else
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE0E0E0)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock, color: Color(0xFF2196F3), size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Senha não informada',
+                      style: TextStyle(fontSize: 16, color: Color(0xFF666666)),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: _generatedPassword.isNotEmpty
+                          ? () {
+                              Clipboard.setData(
+                                ClipboardData(text: _generatedPassword),
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Senha copiada!'),
+                                  backgroundColor: Color(0xFF4CAF50),
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.copy, color: Color(0xFF2196F3)),
+                    ),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 16),
+
+            // Botão para mostrar/ocultar opções
+            TextButton(
+              onPressed: _toggleOptions,
+              child: Text(
+                _showOptions ? 'Ocultar opções' : 'Mostrar opções',
+                style: const TextStyle(color: Color(0xFF2196F3), fontSize: 16),
+              ),
+            ),
+
+            // Opções de geração (com animação)
+            SizeTransition(
+              sizeFactor: _animation,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE0E0E0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Tamanho da senha
+                    Text(
+                      'Tamanho da senha: $_passwordLength',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF333333),
+                      ),
+                    ),
+                    Slider(
+                      value: _passwordLength.toDouble(),
+                      min: 4,
+                      max: 50,
+                      divisions: 46,
+                      activeColor: const Color(0xFF2196F3),
+                      onChanged: (value) {
+                        setState(() {
+                          _passwordLength = value.round();
+                        });
+                      },
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Opções de caracteres
+                    _buildOptionSwitch(
+                      'Incluir letras minúsculas',
+                      _includeLowercase,
+                      (value) => setState(() => _includeLowercase = value),
+                    ),
+                    _buildOptionSwitch(
+                      'Incluir letras maiúsculas',
+                      _includeUppercase,
+                      (value) => setState(() => _includeUppercase = value),
+                    ),
+                    _buildOptionSwitch(
+                      'Incluir números',
+                      _includeNumbers,
+                      (value) => setState(() => _includeNumbers = value),
+                    ),
+                    _buildOptionSwitch(
+                      'Incluir símbolos',
+                      _includeSymbols,
+                      (value) => setState(() => _includeSymbols = value),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Botão gerar senha
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _generatePassword,
+                child: _isLoading
+                    ? const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      )
+                    : const Text(
+                        'Gerar Senha',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _savePassword,
+        child: const Icon(Icons.save),
+      ),
     );
   }
 
-  Widget _buildToggleOption(
+  Widget _buildOptionSwitch(
     String title,
     bool value,
-    ValueChanged<bool?> onChanged,
+    Function(bool) onChanged,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Switch(value: value, onChanged: onChanged, activeColor: Colors.blue),
-          const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+              style: const TextStyle(fontSize: 16, color: Color(0xFF333333)),
             ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: const Color(0xFF2196F3),
           ),
         ],
       ),

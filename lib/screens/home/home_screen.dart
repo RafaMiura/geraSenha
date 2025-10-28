@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gerador_de_senha/screens/login/login_screen.dart';
-import 'package:gerador_de_senha/screens/password/password_screen.dart';
-import 'package:gerador_de_senha/widgets/protected_route.dart';
+import 'package:gerador_de_senha/routes.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,379 +13,293 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  Stream<QuerySnapshot> _passwordStream() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('passwords')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
-  }
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  bool _isPasswordVisible = false;
 
-  Future<void> _logout(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
-    if (context.mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    }
-  }
-
-  Future<void> _deletePassword(String docId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('passwords')
-        .doc(docId)
-        .delete();
-
+  Future<void> _signOut() async {
+    await _auth.signOut();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Senha excluída com sucesso!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      Navigator.pushReplacementNamed(context, Routes.login);
     }
   }
 
-  Future<void> _copyToClipboard(String password) async {
-    await Clipboard.setData(ClipboardData(text: password));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Senha copiada para a área de transferência!'),
-          backgroundColor: Colors.blue,
-        ),
-      );
+  Future<void> _deletePassword(String passwordId) async {
+    try {
+      await _firestore.collection('passwords').doc(passwordId).delete();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Senha excluída com sucesso!'),
+            backgroundColor: Color(0xFF4CAF50),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao excluir senha: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
+  }
+
+  void _copyToClipboard(String password) {
+    Clipboard.setData(ClipboardData(text: password));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Senha copiada para a área de transferência!'),
+        backgroundColor: Color(0xFF4CAF50),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
 
-    return ProtectedRoute(
-      child: Scaffold(
-        backgroundColor: const Color(0xFF1A1A2E),
-        appBar: AppBar(
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          title: const Text('Gerador de Senhas'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: () {
-                setState(() {});
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () => _logout(context),
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            const Icon(Icons.lock, color: Colors.white),
+            const SizedBox(width: 8),
+            const Text(
+              "Gerador de Senhas",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
-        body: Column(
-          children: [
-            // Banner Premium
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Colors.blue, Colors.blueAccent],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.lock, color: Colors.white, size: 24),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'GET PREMIUM',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.yellow,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'BUY',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: "Sair",
+            onPressed: _signOut,
+          ),
+        ],
+        backgroundColor: const Color(0xFF2196F3),
+      ),
+      body: Column(
+        children: [
+          // Email do usuário
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF2196F3),
+            child: Text(
+              user?.email ?? 'Usuário',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
+          ),
 
-            // Email do usuário
-            if (user?.email != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    const Icon(Icons.person, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Logado como: ${user!.email}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+          // Banner Premium
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color.fromARGB(255, 82, 115, 143),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock, color: Colors.white, size: 24),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'GET PREMIUM',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
-                ),
-              ),
-
-            const SizedBox(height: 16),
-
-            // Título da seção
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Minhas Senhas',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.amber,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'BUY',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
+          ),
 
-            const SizedBox(height: 16),
-
-            // Lista de senhas
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _passwordStream(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+          // Lista de senhas
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('passwords')
+                  .where('userId', isEqualTo: user?.uid)
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFF2196F3),
                       ),
-                    );
-                  }
+                    ),
+                  );
+                }
 
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: Colors.red,
-                            size: 64,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Erro ao carregar senhas',
-                            style: TextStyle(color: Colors.white, fontSize: 18),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            snapshot.error.toString(),
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 14,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    );
-                  }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: Colors.red,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Erro ao carregar senhas: ${snapshot.error}',
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
 
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.lock_outline,
-                            color: Colors.grey,
-                            size: 64,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Nenhum registro encontrado',
-                            style: TextStyle(color: Colors.white, fontSize: 18),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Clique no botão para começar',
-                            style: TextStyle(color: Colors.grey, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final docs = snapshot.data!.docs;
-                  return ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) {
-                      final data = docs[i].data() as Map<String, dynamic>;
-                      final docId = docs[i].id;
-                      final password = data['password'] ?? '';
-                      final name = data['name'] ?? 'Sem nome';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A2A3E),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.grey.withOpacity(0.3),
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.lock_outline,
+                          size: 64,
+                          color: Color(0xFF2196F3),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Nenhum registro encontrado',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF333333),
                           ),
                         ),
-                        child: ListTile(
-                          leading: const Icon(Icons.lock, color: Colors.blue),
-                          title: Text(
-                            name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Adicione uma senha para começar!',
+                          style: TextStyle(color: Color(0xFF666666)),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'Minhas Senhas',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF333333),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: snapshot.data!.docs.length,
+                        itemBuilder: (context, index) {
+                          final doc = snapshot.data!.docs[index];
+                          final data = doc.data() as Map<String, dynamic>;
+                          final password = data['password'] as String;
+                          final label = data['label'] as String;
+                          final passwordId = doc.id;
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 4,
                             ),
-                          ),
-                          subtitle: Text(
-                            '••••••••••••',
-                            style: TextStyle(
-                              color: Colors.grey[400],
-                              fontFamily: 'monospace',
-                              letterSpacing: 2,
-                            ),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.visibility,
-                                  color: Colors.grey,
+                            child: ListTile(
+                              leading: IconButton(
+                                icon: Icon(
+                                  _isPasswordVisible
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  color: const Color(0xFF2196F3),
                                 ),
                                 onPressed: () {
-                                  // Mostrar/ocultar senha
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      backgroundColor: const Color(0xFF2A2A3E),
-                                      title: Text(
-                                        name,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      content: Text(
-                                        password,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontFamily: 'monospace',
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text('Fechar'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
+                                  setState(() {
+                                    _isPasswordVisible = !_isPasswordVisible;
+                                  });
                                 },
                               ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.copy,
-                                  color: Colors.blue,
+                              title: Text(
+                                label,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF333333),
                                 ),
-                                onPressed: () => _copyToClipboard(password),
                               ),
-                              IconButton(
+                              subtitle: Text(
+                                _isPasswordVisible
+                                    ? password
+                                    : '•' * password.length,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              trailing: IconButton(
                                 icon: const Icon(
                                   Icons.delete,
                                   color: Colors.red,
                                 ),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      backgroundColor: const Color(0xFF2A2A3E),
-                                      title: const Text(
-                                        'Excluir Senha',
-                                        style: TextStyle(color: Colors.white),
-                                      ),
-                                      content: Text(
-                                        'Tem certeza que deseja excluir a senha "$name"?',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text('Cancelar'),
-                                        ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                            _deletePassword(docId);
-                                          },
-                                          child: const Text(
-                                            'Excluir',
-                                            style: TextStyle(color: Colors.red),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                onPressed: () => _deletePassword(passwordId),
                               ),
-                            ],
-                          ),
-                          onTap: () => _copyToClipboard(password),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+                              onTap: () => _copyToClipboard(password),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const NewPasswordScreen()),
-            );
-          },
-          backgroundColor: Colors.blue,
-          child: const Icon(Icons.add, color: Colors.white),
-        ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.pushNamed(context, Routes.password);
+        },
+        child: const Icon(Icons.add),
       ),
     );
   }

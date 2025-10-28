@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:gerador_de_senha/widgets/custom_text_field.dart';
-import 'package:gerador_de_senha/screens/home/home_screen.dart';
+import 'package:gerador_de_senha/routes.dart';
 import 'package:gerador_de_senha/widgets/custom_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -12,181 +11,255 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  bool _isLogin = true;
-  bool _loading = false;
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isObscure = true;
+  bool _isLoading = false;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  Future<void> _signIn() async {
+    if (_formKey.currentState!.validate()) {
+      FocusScope.of(context).unfocus();
+      setState(() => _isLoading = true);
 
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-
-    setState(() => _loading = true);
-
-    try {
-      if (_isLogin) {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
+      try {
+        await _auth.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
         );
-      } else {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, Routes.home);
+        }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          String message = 'Erro ao fazer login';
+          switch (e.code) {
+            case 'user-not-found':
+              message = 'Usuário não encontrado';
+              break;
+            case 'wrong-password':
+              message = 'Senha incorreta';
+              break;
+            case 'invalid-email':
+              message = 'Email inválido';
+              break;
+            case 'user-disabled':
+              message = 'Usuário desabilitado';
+              break;
+            case 'too-many-requests':
+              message = 'Muitas tentativas. Tente novamente mais tarde';
+              break;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), backgroundColor: Colors.red),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Erro inesperado: $e"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
-
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message ?? 'Erro no login')));
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _signUp() async {
+    if (_formKey.currentState!.validate()) {
+      FocusScope.of(context).unfocus();
+      setState(() => _isLoading = true);
+
+      try {
+        await _auth.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, Routes.home);
+        }
+      } on FirebaseAuthException catch (e) {
+        if (mounted) {
+          String message = 'Erro ao criar conta';
+          switch (e.code) {
+            case 'weak-password':
+              message = 'A senha é muito fraca';
+              break;
+            case 'email-already-in-use':
+              message = 'Este email já está em uso';
+              break;
+            case 'invalid-email':
+              message = 'Email inválido';
+              break;
+            case 'operation-not-allowed':
+              message = 'Operação não permitida';
+              break;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), backgroundColor: Colors.red),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Erro inesperado: $e"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
-      body: SafeArea(
+      backgroundColor: Colors.white,
+      body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 60),
-
-              // Ícone do cadeado
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(Icons.lock, size: 40, color: Colors.blue),
-              ),
-
-              const SizedBox(height: 30),
-
-              // Título
-              const Text(
-                'Bem-vindo!',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // Subtítulo
-              const Text(
-                'Faça login para continuar',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-
-              const SizedBox(height: 40),
-
-              // Formulário
-              CustomTextField(
-                labelText: 'Email',
-                hintText: 'Digite seu email',
-                controller: _emailController,
-                prefixIcon: Icons.email,
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Por favor, digite seu email';
-                  }
-                  if (!value.contains('@')) {
-                    return 'Por favor, digite um email válido';
-                  }
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 20),
-
-              CustomTextField(
-                labelText: 'Senha',
-                hintText: 'Digite sua senha',
-                controller: _passwordController,
-                prefixIcon: Icons.lock,
-                obscureText: true,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Por favor, digite sua senha';
-                  }
-                  if (value.length < 6) {
-                    return 'A senha deve ter pelo menos 6 caracteres';
-                  }
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 30),
-
-              // Botão de ação
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: _loading
-                    ? const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.blue,
-                          ),
-                        ),
-                      )
-                    : ElevatedButton(
-                        onPressed: _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
-                        ),
-                        child: Text(
-                          _isLogin ? 'Entrar' : 'Registrar',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.lock, size: 80, color: Color(0xFF2196F3)),
+                    const SizedBox(height: 24),
+                    const Text(
+                      "Bem-vindo!",
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2196F3),
                       ),
-              ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Faça login para continuar",
+                      style: TextStyle(fontSize: 16, color: Color(0xFF666666)),
+                    ),
+                    const SizedBox(height: 32),
 
-              const SizedBox(height: 20),
+                    // Campo de email
+                    CustomTextField(
+                      label: "Email",
+                      hint: "Digite seu email",
+                      icon: Icons.email,
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Digite seu email';
+                        }
+                        if (!RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,}$')
+                            .hasMatch(value)) {
+                          return 'Digite um email válido';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 20),
 
-              // Botão de alternância
-              TextButton(
-                onPressed: () => setState(() => _isLogin = !_isLogin),
-                child: Text(
-                  _isLogin
-                      ? 'Não tem conta? Registrar'
-                      : 'Já tem conta? Entrar',
-                  style: const TextStyle(color: Colors.blue, fontSize: 16),
+                    // Campo de senha
+                    CustomTextField(
+                      label: "Senha",
+                      hint: "Digite sua senha",
+                      icon: Icons.lock,
+                      controller: _passwordController,
+                      obscureText: _isObscure,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Digite sua senha';
+                        }
+                        if (value.length < 6) {
+                          return 'A senha deve ter pelo menos 6 caracteres';
+                        }
+                        return null;
+                      },
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isObscure ? Icons.visibility_off : Icons.visibility,
+                          color: const Color(0xFF2196F3),
+                        ),
+                        onPressed: () {
+                          setState(() => _isObscure = !_isObscure);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Botões de ação
+                    if (_isLoading)
+                      const CircularProgressIndicator(
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
+                      )
+                    else
+                      Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: _signIn,
+                              child: const Text(
+                                "Entrar",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: OutlinedButton(
+                              onPressed: _signUp,
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF2196F3),
+                                  width: 2,
+                                ),
+                              ),
+                              child: const Text(
+                                "Registrar",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
               ),
-
-              const SizedBox(height: 40),
-            ],
+            ),
           ),
         ),
       ),
