@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:gerador_de_senha/screens/home/home_screen.dart';
-import 'package:gerador_de_senha/screens/intro/intro_screen.dart';
-
+import 'package:gerador_de_senha/screens/splash/splash_screen.dart';
+import 'package:gerador_de_senha/firebase_options.dart';
+import 'package:gerador_de_senha/firebase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const PasswordApp());
-}
 
-class DefaultFirebaseOptions {
-  static FirebaseOptions? get currentPlatform => null;
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    await FirebaseConfig.initialize();
+    print('🚀 App inicializado com sucesso!');
+  } catch (e) {
+    print('❌ Erro ao inicializar app: $e');
+  }
+
+  runApp(const PasswordApp());
 }
 
 class PasswordApp extends StatelessWidget {
@@ -26,20 +31,7 @@ class PasswordApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
         useMaterial3: true,
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          } else if (snapshot.hasData) {
-            return const HomeScreen();
-          } else {
-            return const IntroScreen();
-          }
-        },
-      ),
+      home: const SplashScreen(),
     );
   }
 }

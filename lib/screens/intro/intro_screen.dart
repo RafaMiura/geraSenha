@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gerador_de_senha/screens/login/login_screen.dart';
-
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
@@ -15,38 +16,37 @@ class _IntroScreenState extends State<IntroScreen> {
 
   final List<Map<String, String>> pages = [
     {
-      'title': 'Bem-vindo!',
-      'subtitle': 'Gerencie suas senhas com segurança.',
-      'anim': 'assets/animations/security.json',
+      'title': 'Bem-vindo ao App',
+      'subtitle': 'Aproveite o seu gerenciamento de senhas',
+      'anim': 'assets/animations/welcome.json',
     },
     {
-      'title': 'Organize-se',
-      'subtitle': 'Salve e acesse suas senhas em qualquer lugar.',
-      'anim': 'assets/animations/cloud.json',
+      'title': 'Funcionalidades',
+      'subtitle': 'Explore diversas funcionalidades',
+      'anim': 'assets/animations/features.json',
     },
     {
-      'title': 'Tudo pronto!',
-      'subtitle': 'Vamos começar?',
+      'title': 'Vamos começar?',
+      'subtitle': 'Pronto para usar o gerenciador com segurança?',
       'anim': 'assets/animations/start.json',
     },
   ];
-  
-  get SharedPreferences => null;
-  
-  get Lottie => null;
 
   Future<void> _finishIntro() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('skipIntro', dontShowAgain);
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF1A1A2E),
       body: PageView.builder(
         itemCount: pages.length,
         onPageChanged: (i) => setState(() => pageIndex = i),
@@ -57,16 +57,51 @@ class _IntroScreenState extends State<IntroScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Lottie.asset(page['anim']!, height: 220),
+                // Animação Lottie centralizada
+                Container(
+                  width: 250,
+                  height: 250,
+                  child: Lottie.asset(
+                    page['anim']!,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      // Fallback para cada página
+                      IconData iconData;
+                      switch (i) {
+                        case 0:
+                          iconData = Icons.security;
+                          break;
+                        case 1:
+                          iconData = Icons.fitness_center;
+                          break;
+                        case 2:
+                          iconData = Icons.lock_open;
+                          break;
+                        default:
+                          iconData = Icons.security;
+                      }
+                      return Icon(iconData, size: 120, color: Colors.blue);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 30),
                 Text(
                   page['title']!,
                   style: const TextStyle(
-                    fontSize: 24,
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 10),
-                Text(page['subtitle']!, textAlign: TextAlign.center),
+                const SizedBox(height: 15),
+                Text(
+                  page['subtitle']!,
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                // Checkbox apenas na última página
                 if (i == pages.length - 1)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -74,8 +109,12 @@ class _IntroScreenState extends State<IntroScreen> {
                       Checkbox(
                         value: dontShowAgain,
                         onChanged: (v) => setState(() => dontShowAgain = v!),
+                        activeColor: Colors.blue,
                       ),
-                      const Text('Não mostrar novamente'),
+                      const Text(
+                        'Não mostrar essa introdução novamente',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ],
                   ),
               ],
@@ -83,29 +122,65 @@ class _IntroScreenState extends State<IntroScreen> {
           );
         },
       ),
-      bottomNavigationBar: Padding(
+      bottomNavigationBar: Container(
         padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1A2E),
+          border: Border(top: BorderSide(color: Colors.grey, width: 0.5)),
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            // Botão Voltar (apenas se não for a primeira página)
             if (pageIndex > 0)
               TextButton(
                 onPressed: () => setState(() => pageIndex--),
-                child: const Text('Voltar'),
-              ),
+                child: const Text(
+                  'Voltar',
+                  style: TextStyle(color: Colors.blue, fontSize: 16),
+                ),
+              )
+            else
+              const SizedBox(width: 60), // Espaçamento para manter alinhamento
+            // Botão Avançar/Concluir
             ElevatedButton(
               onPressed: pageIndex == pages.length - 1
                   ? _finishIntro
                   : () => setState(() => pageIndex++),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
               child: Text(
                 pageIndex == pages.length - 1 ? 'Concluir' : 'Avançar',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
+
+            // Botão Pular (apenas se não for a última página)
+            if (pageIndex < pages.length - 1)
+              TextButton(
+                onPressed: _finishIntro,
+                child: const Text(
+                  'Pular',
+                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                ),
+              )
+            else
+              const SizedBox(width: 60), // Espaçamento para manter alinhamento
           ],
         ),
       ),
     );
   }
 }
-
-
